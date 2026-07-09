@@ -1,4 +1,4 @@
-# SmartPump 💧⚡
+# SmartPump 
 
 > Built as a client project (not an original personal concept) — implemented end-to-end here: firmware, on-device ML, dashboard, and hardware integration.
 
