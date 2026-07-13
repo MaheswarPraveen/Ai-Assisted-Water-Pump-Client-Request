@@ -199,16 +199,15 @@ void updatePump(){
 }
 
 /* ---------- LEARNER: train NN live on real events ------------------------ *
- *  A manual ON that's still under a minute old is skipped entirely (could be
- *  an accidental press or a quick test, not real demand) — neither counted
- *  as "on" nor "off" for that tick, so it just doesn't teach anything yet.
+ *  Every state sample trains the network — including MANUAL on/off. A
+ *  deliberate manual switch is genuine demand (e.g. you turn the pump on at
+ *  the same time each day), so it counts toward the learned pattern just like
+ *  automatic fills do.
  * ------------------------------------------------------------------------- */
 void updateLearner(){
   int wday,hour; int idx=currentBin(wday,hour); if(idx<0)return;
-  bool filling = (state==FILLING);
-  if(filling && fillIsManual && (millis()-fillStart)<MIN_LEARN_MS) return;
   float x[NI]; feat(hour,wday,x);
-  netTrain(x, filling?1.0f:0.0f, 0.02f);
+  netTrain(x, (state==FILLING)?1.0f:0.0f, 0.02f);
   sampleCount++;
 }
 
