@@ -40,6 +40,8 @@ uint32_t MAX_RUN_MS   = 15UL*60*1000;         // adjustable via dashboard
 #define LEARN_SAMPLE_MS 60000UL               // train NN once/min
 #define AUTO_READY_SAMPLES 10UL               // TEST value: Auto unlocks almost immediately for bench testing.
                                               // For production set to 30240UL (~3 weeks of one-sample-per-minute data).
+#define CHART_MIN_SAMPLES  200UL              // separate from AUTO_READY_SAMPLES so the "typical day" chart
+                                              // only appears once there's real data, regardless of the auto-gate test value
 #define SAVE_MS         600000UL              // persist every 10 min
 
 /* ---------- TYPES (must precede any function that uses them) ------------- */
@@ -194,7 +196,10 @@ void updatePump(){
       break;
     case FAULT:
       relay(false);
-      if(millis()-faultSince>FAULT_COOLDOWN){ state=IDLE; }
+      if(millis()-faultSince>FAULT_COOLDOWN){
+        state=IDLE;
+        manual=M_AUTO;   // a fault means something ran unattended too long — hand control back to the float instead of silently repeating the same manual mode
+      }
       break;
   }
 }
@@ -212,15 +217,35 @@ void updateLearner(){
   sampleCount++;
 }
 
+/* ---------- TARIFF (time-of-use electricity pricing) ---------------------- *
+ *  Normal 6am-6pm: 90%, Peak 6pm-10pm: 125%, Off-Peak 10pm-6am: 100% of the
+ *  standard ruling tariff. The float switch only reports low/full (no partial
+ *  level), so AUTO mode can never safely *defer* a fill once water is called
+ *  for -- this only informs the dashboard display and biases which upcoming
+ *  hour gets recommended when several hours look equally likely to need water.
+ * ------------------------------------------------------------------------- */
+float tariffMult(int h){ if(h>=18&&h<22)return 1.25f; if(h>=6&&h<18)return 0.90f; return 1.00f; }
+const char* tariffLabel(int h){ if(h>=18&&h<22)return "Peak"; if(h>=6&&h<18)return "Normal"; return "Off-Peak"; }
+
 /* ---------- PREDICTIONS --------------------------------------------------- */
 float predAt(int h,int d){ float x[NI]; feat(h,d,x); return netForward(x); }
-// next hour (from now) whose prediction crosses a sensible threshold
+// next hour (from now) whose prediction crosses a sensible threshold, preferring
+// cheaper tariff hours when several upcoming hours are similarly likely
 int nextPumpHoursAhead(){
   int wday,hour; if(currentBin(wday,hour)<0) return -1;
   float mx=0; for(int d=0;d<7;d++)for(int h=0;h<24;h++)mx=fmaxf(mx,predAt(h,d));
   float thr=fmaxf(0.15f, mx*0.5f);
-  for(int a=1;a<=48;a++){ int h=(hour+a)%24, d=(wday+((hour+a)/24))%7; if(predAt(h,d)>=thr) return a; }
-  return -1;
+  int best=-1; float bestTariff=999;
+  for(int a=1;a<=48;a++){
+    int h=(hour+a)%24, d=(wday+((hour+a)/24))%7;
+    if(predAt(h,d)>=thr){
+      if(best<0) best=a;                          // first qualifying hour, as before
+      // within the first 6 candidate hours, prefer whichever is cheapest
+      if(a-best<=6 && tariffMult(h)<bestTariff){ bestTariff=tariffMult(h); best=a; }
+      if(a-best>6) break;
+    }
+  }
+  return best;
 }
 
 /* ---------- WEB: dashboard page (dark glassmorphism) --------------------- */
@@ -265,7 +290,7 @@ a.link{color:var(--accent);text-decoration:none;font-size:.85rem}
 <div class="sub">on-device neural network &middot; live tank control</div>
 <div class="btns" style="max-width:600px;margin-bottom:6px">
   <button class="on"  onclick="cmd('on')" style="font-size:1rem;padding:14px">&#9654; Pump ON</button>
-  <button class="off" onclick="cmd('off')" style="font-size:1rem;padding:14px">&#9632; Pump OFF</button>
+  <button class="off" onclick="cmd('off')" style="font-size:1rem;padding:14px">&#9632; Stop now</button>
   <button class="act" id="autoBtn" onclick="cmd('auto')" style="font-size:1rem;padding:14px">Auto &#128274;</button>
 </div>
 <div id="autoWarn" style="display:none;max-width:600px;background:rgba(239,68,68,.15);border:1px solid #ef4444;color:#ffb4b4;padding:9px 12px;border-radius:11px;font-size:.8rem;margin-bottom:16px"></div>
@@ -282,6 +307,7 @@ a.link{color:var(--accent);text-decoration:none;font-size:.85rem}
     <div class="row"><span class="k">Uptime</span><span class="v" id="uptime">--</span></div>
     <div class="row"><span class="k">WiFi</span><span class="v" id="wifi">--</span></div>
     <div class="row"><span class="k">Free memory</span><span class="v" id="heap">--</span></div>
+    <div class="row"><span class="k">Tariff now</span><span class="v" id="tariff">--</span></div>
   </div>
 
   <div class="card">
@@ -352,11 +378,12 @@ async function cmd(m){
 }
 async function resetFault(){await fetch('/api/fault',{method:'POST'});tick();}
 async function setMax(){let v=document.getElementById('maxrun').value;await fetch('/api/settings?maxrun='+v,{method:'POST'});}
-let lastLearnPct=0;
+let lastLearnPct=0, lastChartReady=false;
 async function tick(){
  try{
   const d=await (await fetch('/api/status')).json();
   lastLearnPct=d.learnPct;
+  lastChartReady=d.chartReady;
   const st=document.getElementById('state'); st.textContent=d.state;
   const c=d.state=='FILLING'?getComputedStyle(document.documentElement).getPropertyValue('--on')
         :d.state=='FAULT'?getComputedStyle(document.documentElement).getPropertyValue('--fault')
@@ -369,6 +396,7 @@ async function tick(){
   document.getElementById('uptime').textContent=d.uptime;
   document.getElementById('wifi').textContent=d.wifi;
   document.getElementById('heap').textContent=d.heap;
+  document.getElementById('tariff').textContent=d.tariffPct+'% ('+d.tariffLabel+')';
   document.getElementById('fToday').textContent=d.fToday;
   document.getElementById('fWeek').textContent=d.fWeek;
   document.getElementById('fTotal').textContent=d.fTotal;
@@ -405,11 +433,11 @@ async function drawHeat(){
   // Gate on ACTUAL data collected (not on how spread-out the untrained
   // network's guesses look — a fresh network hovers near 50% everywhere,
   // which isn't "flat enough" to self-detect as untrained).
-  if(lastLearnPct<8){
+  if(!lastChartReady){
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle='#64748b'; ctx.font='12px system-ui'; ctx.textAlign='center';
     ctx.fillText('Gathering data…', W/2, H/2);
-    summary.textContent='Not enough real usage data yet to show a pattern ('+lastLearnPct+'% collected).';
+    summary.textContent='Not enough real usage data yet to show a reliable pattern.';
     return;
   }
 
@@ -503,8 +531,10 @@ void handleStatus(){
   int wday,hour; int idx=currentBin(wday,hour);
   const char* days[]={"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
   float pNow=0,pNext=0; char timeStr[24]="no NTP yet";
+  float curTariff=1.0f; const char* curTariffLbl="--";
   if(idx>=0){ pNow=predAt(hour,wday); pNext=predAt((hour+1)%24,(wday+((hour+1)/24))%7);
-    struct tm t; getLocalTime(&t,10); strftime(timeStr,sizeof(timeStr),"%a %H:%M",&t); }
+    struct tm t; getLocalTime(&t,10); strftime(timeStr,sizeof(timeStr),"%a %H:%M",&t);
+    curTariff=tariffMult(hour); curTariffLbl=tariffLabel(hour); }
 
   uint32_t upS=millis()/1000;
   float learnPct=sampleCount/(float)AUTO_READY_SAMPLES*100; if(learnPct>100)learnPct=100;
@@ -563,6 +593,9 @@ void handleStatus(){
   j+="\"learn\":\""+String(learnDays,1)+" days ("+String(sampleCount)+")\",";
   j+="\"learnPct\":"+String((int)learnPct)+",";
   j+="\"autoReady\":"+String(autoReady?"true":"false")+",";
+  j+="\"chartReady\":"+String(sampleCount>=CHART_MIN_SAMPLES?"true":"false")+",";
+  j+="\"tariffPct\":"+String((int)(curTariff*100))+",";
+  j+="\"tariffLabel\":\""+String(curTariffLbl)+"\",";
   j+="\"faults\":"+String(faultCount)+",";
   j+="\"lastFault\":\""+lastFault+"\",";
   j+="\"faultWhen\":\""+faultWhen+"\",";
@@ -595,7 +628,18 @@ void handlePump(){ String m=server.arg("m");
   if(m=="auto" && sampleCount<AUTO_READY_SAMPLES){
     server.send(409,"text/plain","not enough data yet — Auto mode unlocks once the dataset bar is full"); return;
   }
-  if(m=="on")manual=M_ON; else if(m=="off")manual=M_OFF; else manual=M_AUTO;
+  if(m=="on"){
+    manual=M_ON;
+  } else if(m=="off"){
+    // OFF is a one-shot stop, not a standing lockout: stop the pump right now,
+    // then immediately hand control back to the float so the sensor keeps
+    // working (tilt the float low again afterward and it fills as normal).
+    if(state==FILLING) endFill();
+    relay(false);
+    manual=M_AUTO;
+  } else {
+    manual=M_AUTO;
+  }
   server.send(200,"text/plain","ok"); }
 void handleFaultReset(){ if(state==FAULT)state=IDLE; server.send(200,"text/plain","ok"); }
 void handleSettings(){ if(server.hasArg("maxrun")){ int v=server.arg("maxrun").toInt(); if(v>=1&&v<=120)MAX_RUN_MS=v*60000UL; } server.send(200,"text/plain","ok"); }
