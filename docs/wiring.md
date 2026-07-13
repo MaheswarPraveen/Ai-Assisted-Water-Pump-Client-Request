@@ -92,7 +92,7 @@ Because it's a changeover, HAND and AUTO are never connected at once (no paralle
 
 ## Float switch (level sensor)
 ```
-Float switch → ESP32 GPIO32   (INPUT_PULLUP)
+Float switch → ESP32 GPIO25   (INPUT_PULLUP)
 Float switch → ESP32 GND
 ```
 Two wires, low-voltage. A single tethered float gives both "low" and "full" via its tether slack. Firmware `FLOAT_CALL_LEVEL` sets which level means "water low" (flip if reversed).
@@ -110,7 +110,7 @@ Low-voltage signal (3.3V, microamps) — the ESP32 reads it and drives the SSR, 
 ```
    LOW VOLTAGE (safe)                    |     MAINS 240V (dangerous, enclose)
   HLK-5M05 → 5V → ESP32 VIN/GND          |   Live → HAND/OFF/AUTO selector
-  GPIO32 ← float switch                  |        AUTO → [MCB] → SSR t1 → t2 → Pump Live
+  GPIO25 ← float switch                  |        AUTO → [MCB] → SSR t1 → t2 → Pump Live
   GPIO26 → SSR t3 (+)                    |        HAND → Pump Live (direct)
   GND    → SSR t4 (−)                    |   Neutral → Pump (direct)
   GPIO25 ← optional manual button        |   Earth → Pump

@@ -25,7 +25,7 @@ const char* AP_PASS = "pump12345";
 const char* WIFI_SSID = "";                  // set live via /wifi
 const char* WIFI_PASS = "";
 
-#define PIN_FLOAT   32
+#define PIN_FLOAT   25
 #define PIN_RELAY   26
 #define PIN_LED      2
 // NPN transistor buffer inverts the drive: GPIO HIGH -> transistor on ->
@@ -38,7 +38,8 @@ uint32_t MAX_RUN_MS   = 15UL*60*1000;         // adjustable via dashboard
 #define FAULT_COOLDOWN (10UL*60*1000)
 #define DEBOUNCE_MS     500
 #define LEARN_SAMPLE_MS 60000UL               // train NN once/min
-#define AUTO_READY_SAMPLES 30240UL            // ~3 weeks of one-sample-per-minute data
+#define AUTO_READY_SAMPLES 10UL               // TEST value: Auto unlocks almost immediately for bench testing.
+                                              // For production set to 30240UL (~3 weeks of one-sample-per-minute data).
 #define SAVE_MS         600000UL              // persist every 10 min
 
 /* ---------- TYPES (must precede any function that uses them) ------------- */

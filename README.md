@@ -51,7 +51,7 @@ The actual deployed firmware is **[firmware/SmartPump/SmartPump.ino](firmware/Sm
 
 | Signal | GPIO |
 |---|---|
-| Float switch | 32 (`INPUT_PULLUP`) |
+| Float switch | 25 (`INPUT_PULLUP`) |
 | Relay/SSR control | 26 (HIGH = pump ON) |
 | Status LED | 2 (onboard blue) |
 
