@@ -412,10 +412,9 @@ async function tick(){
   document.getElementById('learn').textContent=d.learn;
   document.getElementById('learnBar').style.width=d.learnPct+'%';
   const autoBtn=document.getElementById('autoBtn'), readyMsg=document.getElementById('readyMsg');
-  if(d.autoReady){ autoBtn.textContent='Auto'; autoBtn.style.opacity=1;
-    readyMsg.textContent='✓ Ready for auto mode'; readyMsg.style.color='#9ff5bd'; }
-  else { autoBtn.textContent='Auto 🔒'; autoBtn.style.opacity=.55;
-    readyMsg.textContent='Collecting real usage data — '+d.learnPct+'% of the way to unlocking Auto mode'; readyMsg.style.color=''; }
+  autoBtn.textContent='Auto (sensor)'; autoBtn.style.opacity=1;   // always available — float safety control is never gated
+  if(d.autoReady){ readyMsg.textContent='✓ AI has enough data for predictive tips'; readyMsg.style.color='#9ff5bd'; }
+  else { readyMsg.textContent='AI still learning your pattern — '+d.learnPct+'% (this does not affect Auto/sensor control, which always works)'; readyMsg.style.color=''; }
   document.getElementById('faults').textContent=d.faults;
   document.getElementById('lastFault').textContent=d.lastFault;
   document.getElementById('faultWhen').textContent=d.faultWhen;
@@ -625,9 +624,10 @@ void handleCsv(){
 }
 
 void handlePump(){ String m=server.arg("m");
-  if(m=="auto" && sampleCount<AUTO_READY_SAMPLES){
-    server.send(409,"text/plain","not enough data yet — Auto mode unlocks once the dataset bar is full"); return;
-  }
+  // NOTE: Auto = "let the float decide" (basic safety control) and is always
+  // available — it must never be gated behind the AI dataset. The dataset
+  // progress bar only reflects how much the AI has learned toward future
+  // predictive pre-filling; it has no bearing on the float safety loop.
   if(m=="on"){
     manual=M_ON;
   } else if(m=="off"){
